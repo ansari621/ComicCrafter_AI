@@ -1,0 +1,95 @@
+
+import os  
+import logging  
+import torch  
+from diffusers import StableDiffusionPipeline  
+from PIL import Image, ImageDraw, ImageFont  
+from transformers import AutoTokenizer, AutoModelForCausalLM  
+import warnings  
+from IPython.display import display, Image as ipyimg  
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  
+warnings.filterwarnings("ignore")  
+logging.getLogger("transformers").setLevel(logging.ERROR)  
+
+
+class StoryGenerator:  
+    def __init__(self, model_name="gpt2"):  
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)  
+        self.model = AutoModelForCausalLM.from_pretrained(model_name)  
+
+    def generate_story(self, prompt, max_length=150):   
+        try:  
+            input_ids = self.tokenizer.encode(prompt, return_tensors="pt")  
+            output = self.model.generate(input_ids, max_length=max_length, do_sample=True, num_return_sequences=1)  
+            story = self.tokenizer.decode(output[0], skip_special_tokens=True)  
+
+            sentences = list(dict.fromkeys(story.split(". ")))  
+            return ". ".join(sentences).strip()  
+        except Exception as e:  
+            print(f"Error generating story: {e}")  
+            return None
+
+class ImageGenerator:  
+    def __init__(self):   
+        self.model_id = "CompVis/stable-diffusion-v1-4"  
+        self.pipeline = StableDiffusionPipeline.from_pretrained(self.model_id, torch_dtype=torch.float16, revision="fp16")  
+        self.pipeline.to("cuda" if torch.cuda.is_available() else "cpu")  
+
+    def generate_image(self, prompt, num_inference_steps=35):    
+        try:  
+            image = self.pipeline(prompt, num_inference_steps=num_inference_steps).images[0]  
+            return image  
+        except Exception as e:  
+            print(f"Error during image generation: {e}")  
+            return None 
+
+  
+def draw_speech_bubble(draw, text, bubble_coords, font, bubble_fill=(255, 255, 255), text_fill=(0, 0, 0)):  
+    x1, y1, x2, y2 = bubble_coords  
+    draw.rectangle([x1, y1, x2, y2], fill=bubble_fill, outline=(0, 0, 0))  
+    text_x, text_y = x1 + 10, y1 + 10  # Padding for text inside bubble  
+    draw.text((text_x, text_y), text, font=font, fill=text_fill)  
+
+if __name__ == "__main__":  
+    story_gen = StoryGenerator()  
+    image_gen = ImageGenerator()  
+
+    prompt = "A sunny day with two friends talking and laughing in a park."  
+    speech_texts = [  
+        "JUST A MINUTE!!",  
+        "Are you saying I have no imagination?",  
+        "I have PLENTY of imagination!",  
+        "Bet I could out-imagine anyone!"  
+    ]  
+  
+    images = [  
+        image_gen.generate_image(prompt + " Panel 1"),  
+        image_gen.generate_image(prompt + " Panel 2"),  
+        image_gen.generate_image(prompt + " Panel 3"),  
+        image_gen.generate_image(prompt + " Panel 4"),  
+    ]  
+
+    page_width, page_height = 800, 1000  
+    page = Image.new("RGB", (page_width, page_height), (255, 255, 255))  
+    draw = ImageDraw.Draw(page)  
+
+    font = ImageFont.load_default()  
+
+    panel_width, panel_height = 350, 250  
+    positions = [(20, 20), (420, 20), (20, 320), (420, 320)]  
+    
+    bubble_positions = [  
+        (30, 280, 320, 310),  
+        (430, 280, 720, 310),  
+        (30, 580, 320, 610),  
+        (430, 580, 720, 610),  
+    ]  
+    for i, (image, pos, bubble_pos, text) in enumerate(zip(images, positions, bubble_positions, speech_texts)):  
+        if image: 
+            image.thumbnail((panel_width, panel_height))  
+            page.paste(image, pos)  
+        draw_speech_bubble(draw, text, bubble_pos, font)  
+    page.save("comic_style_output.png")  
+    display(ipyimg(filename="comic_style_output.png"))
+
